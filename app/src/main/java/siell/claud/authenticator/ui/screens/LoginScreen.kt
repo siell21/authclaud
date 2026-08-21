@@ -20,9 +20,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
+import androidx.credentials.CustomCredential
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
-import androidx.credentials.CustomCredential
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
@@ -53,26 +53,26 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
             modifier = Modifier.size(80.dp),
             tint = MaterialTheme.colorScheme.primary
         )
-        
+
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         Text(
             text = "Cloud Authenticator",
             style = MaterialTheme.typography.headlineLarge,
             color = MaterialTheme.colorScheme.onBackground,
             fontWeight = FontWeight.Bold
         )
-        
+
         Spacer(modifier = Modifier.height(8.dp))
-        
+
         Text(
             text = "Secure, sync, and simplify your 2FA.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.secondary
         )
-        
+
         Spacer(modifier = Modifier.height(48.dp))
-        
+
         // Features list
         FeatureItem(
             icon = Icons.Default.Cloud,
@@ -80,22 +80,22 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
             desc = "Auto-backup to your private Google Drive."
         )
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         FeatureItem(
             icon = Icons.Default.Security,
             title = "End-to-End Encrypted",
             desc = "Your secrets never leave your device unencrypted."
         )
         Spacer(modifier = Modifier.height(24.dp))
-        
+
         FeatureItem(
             icon = Icons.Default.Lock,
             title = "App Lock",
             desc = "Protect your codes with Biometrics or PIN."
         )
-        
+
         Spacer(modifier = Modifier.height(64.dp))
-        
+
         if (isLoggingIn) {
             CircularProgressIndicator()
         } else {
@@ -106,7 +106,7 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
                         errorMessage = null
                         try {
                             val credentialManager = CredentialManager.create(context)
-                            
+
                             val googleIdOption: GetGoogleIdOption = GetGoogleIdOption.Builder()
                                 .setFilterByAuthorizedAccounts(false)
                                 .setServerClientId(context.getString(siell.claud.authenticator.R.string.web_client_id))
@@ -119,31 +119,27 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
                             val result = credentialManager.getCredential(context, request)
                             val credential = result.credential
 
-val result = credentialManager.getCredential(context, request)
-val credential = result.credential
+                            if (credential is CustomCredential &&
+                                credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+                            ) {
+                                val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+                                val email = googleIdTokenCredential.id // Email is often used as ID or it's accessible directly
+                                // For access token with scope
+                                val token = withContext(Dispatchers.IO) {
+                                    val account = Account(email, "com.google")
+                                    GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive.appdata")
+                                }
 
-if (credential is CustomCredential &&
-    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
-) {
-    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
-    val id = googleIdTokenCredential.id
-    val email = googleIdTokenCredential.id // Email is often used as ID or it's accessible directly
-    // For access token with scope
-    val token = withContext(Dispatchers.IO) {
-        val account = Account(email, "com.google")
-        GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive.appdata")
-    }
-
-    onLoginSuccess(
-        googleIdTokenCredential.id,
-        email,
-        googleIdTokenCredential.displayName ?: "User",
-        googleIdTokenCredential.profilePictureUri?.toString(),
-        token
-    )
-} else {
-    errorMessage = "Unsupported credential type."
-}
+                                onLoginSuccess(
+                                    googleIdTokenCredential.id,
+                                    email,
+                                    googleIdTokenCredential.displayName ?: "User",
+                                    googleIdTokenCredential.profilePictureUri?.toString(),
+                                    token
+                                )
+                            } else {
+                                errorMessage = "Unsupported credential type."
+                            }
                         } catch (e: Exception) {
                             e.printStackTrace()
                             errorMessage = "Login failed: ${e.message}"
@@ -161,7 +157,7 @@ if (credential is CustomCredential &&
             ) {
                 Text("Sign in with Google", fontWeight = FontWeight.Bold)
             }
-            
+
             if (errorMessage != null) {
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(text = errorMessage!!, color = MaterialTheme.colorScheme.error)
