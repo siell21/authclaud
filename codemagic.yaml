@@ -31,7 +31,7 @@ workflows:
     publishing:
       email:
         recipients:
-          - kempesedanegmail.com
+          - kempesedan@gmail.com
         notify:
           success: true
           failure: true
