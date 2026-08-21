@@ -1,6 +1,8 @@
 package siell.claud.authenticator.ui.screens
 
 import android.app.Activity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,6 +32,7 @@ import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import kotlinx.coroutines.launch
 import com.google.android.gms.auth.GoogleAuthUtil
+import com.google.android.gms.auth.UserRecoverableAuthException
 import android.accounts.Account
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -40,6 +43,57 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
     val coroutineScope = rememberCoroutineScope()
     var isLoggingIn by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    // Menyimpan data credential Google yang sudah didapat, dipakai lagi
+    // untuk melanjutkan proses login setelah user menyetujui consent screen Drive.
+    var pendingGoogleId by remember { mutableStateOf<String?>(null) }
+    var pendingEmail by remember { mutableStateOf<String?>(null) }
+    var pendingName by remember { mutableStateOf<String?>(null) }
+    var pendingPicUrl by remember { mutableStateOf<String?>(null) }
+
+    // Fungsi untuk mengambil access token dengan scope Drive, lalu memanggil onLoginSuccess.
+    // Dipisah supaya bisa dipanggil ulang (retry) setelah user menyetujui consent screen.
+    suspend fun fetchTokenAndLogin(
+        googleId: String,
+        email: String,
+        name: String,
+        picUrl: String?
+    ) {
+        val token = withContext(Dispatchers.IO) {
+            val account = Account(email, "com.google")
+            GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive.appdata")
+        }
+        onLoginSuccess(googleId, email, name, picUrl, token)
+    }
+
+    // Launcher untuk menampilkan layar consent Google (dipicu saat UserRecoverableAuthException terjadi).
+    // Setelah user menyetujui (RESULT_OK), kita coba ambil token lagi.
+    val consentLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val googleId = pendingGoogleId
+        val email = pendingEmail
+        val name = pendingName
+        val picUrl = pendingPicUrl
+
+        if (result.resultCode == Activity.RESULT_OK && googleId != null && email != null && name != null) {
+            coroutineScope.launch {
+                isLoggingIn = true
+                errorMessage = null
+                try {
+                    fetchTokenAndLogin(googleId, email, name, picUrl)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                    errorMessage = "Login failed: ${e.message}"
+                } finally {
+                    isLoggingIn = false
+                }
+            }
+        } else {
+            errorMessage = "Izin akses Google Drive dibutuhkan agar backup & sync bisa berjalan."
+            isLoggingIn = false
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize().padding(24.dp),
@@ -124,19 +178,24 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
                             ) {
                                 val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
                                 val email = googleIdTokenCredential.id // Email is often used as ID or it's accessible directly
-                                // For access token with scope
-                                val token = withContext(Dispatchers.IO) {
-                                    val account = Account(email, "com.google")
-                                    GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive.appdata")
-                                }
+                                val name = googleIdTokenCredential.displayName ?: "User"
+                                val picUrl = googleIdTokenCredential.profilePictureUri?.toString()
 
-                                onLoginSuccess(
-                                    googleIdTokenCredential.id,
-                                    email,
-                                    googleIdTokenCredential.displayName ?: "User",
-                                    googleIdTokenCredential.profilePictureUri?.toString(),
-                                    token
-                                )
+                                // Simpan data credential dulu, siapa tahu perlu retry setelah consent screen.
+                                pendingGoogleId = googleIdTokenCredential.id
+                                pendingEmail = email
+                                pendingName = name
+                                pendingPicUrl = picUrl
+
+                                try {
+                                    fetchTokenAndLogin(googleIdTokenCredential.id, email, name, picUrl)
+                                } catch (e: UserRecoverableAuthException) {
+                                    // Scope Drive belum pernah disetujui user -> tampilkan layar consent Google.
+                                    // Setelah user approve, consentLauncher akan retry fetchTokenAndLogin di atas.
+                                    isLoggingIn = false
+                                    consentLauncher.launch(e.intent)
+                                    return@launch
+                                }
                             } else {
                                 errorMessage = "Unsupported credential type."
                             }
