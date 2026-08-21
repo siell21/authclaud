@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
 import androidx.credentials.exceptions.GetCredentialException
+import androidx.credentials.CustomCredential
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.Scope
@@ -118,25 +119,31 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
                             val result = credentialManager.getCredential(context, request)
                             val credential = result.credential
 
-                            if (credential is GoogleIdTokenCredential) {
-                                val id = credential.id
-                                val email = credential.id // Email is often used as ID or it's accessible directly
-                                // For access token with scope
-                                val token = withContext(Dispatchers.IO) {
-                                    val account = Account(email, "com.google")
-                                    GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive.appdata")
-                                }
+val result = credentialManager.getCredential(context, request)
+val credential = result.credential
 
-                                onLoginSuccess(
-                                    credential.id,
-                                    email,
-                                    credential.displayName ?: "User",
-                                    credential.profilePictureUri?.toString(),
-                                    token
-                                )
-                            } else {
-                                errorMessage = "Unsupported credential type."
-                            }
+if (credential is CustomCredential &&
+    credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL
+) {
+    val googleIdTokenCredential = GoogleIdTokenCredential.createFrom(credential.data)
+    val id = googleIdTokenCredential.id
+    val email = googleIdTokenCredential.id // Email is often used as ID or it's accessible directly
+    // For access token with scope
+    val token = withContext(Dispatchers.IO) {
+        val account = Account(email, "com.google")
+        GoogleAuthUtil.getToken(context, account, "oauth2:https://www.googleapis.com/auth/drive.appdata")
+    }
+
+    onLoginSuccess(
+        googleIdTokenCredential.id,
+        email,
+        googleIdTokenCredential.displayName ?: "User",
+        googleIdTokenCredential.profilePictureUri?.toString(),
+        token
+    )
+} else {
+    errorMessage = "Unsupported credential type."
+}
                         } catch (e: Exception) {
                             e.printStackTrace()
                             errorMessage = "Login failed: ${e.message}"
