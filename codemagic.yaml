@@ -5,9 +5,9 @@ workflows:
     instance_type: mac_mini_m2
     environment:
       groups:
-        - google_services   # buat grup ini di Codemagic > Environment variables, isi var GOOGLE_SERVICES_JSON (base64)
+        - google_services   # grup di Codemagic > Environment variables, isi var GOOGLE_SERVICES_JSON (base64)
       android_signing:
-        - cloud_auth        # nama reference keystore yang sudah Anda upload di Settings > Android keystores
+        - cloud_auth        # reference name keystore yang sudah diupload di Settings > Android keystores
       vars:
         PACKAGE_NAME: "siell.claud.authenticator"
       java: 17
@@ -17,7 +17,28 @@ workflows:
         script: |
           echo $GOOGLE_SERVICES_JSON | base64 --decode > $CM_BUILD_DIR/app/google-services.json
 
-      - name: Build Gradle Release (APK & AAB)
+      - name: Suntikkan signingConfig release menggunakan kredensial Codemagic (tidak diubah di repo, hanya di mesin build)
+        script: |
+          cat <<EOF >> $CM_BUILD_DIR/app/build.gradle.kts
+
+          android {
+              signingConfigs {
+                  create("release") {
+                      storeFile = file(System.getenv("CM_KEYSTORE_PATH")!!)
+                      storePassword = System.getenv("CM_KEYSTORE_PASSWORD")!!
+                      keyAlias = System.getenv("CM_KEY_ALIAS")!!
+                      keyPassword = System.getenv("CM_KEY_PASSWORD")!!
+                  }
+              }
+              buildTypes {
+                  getByName("release") {
+                      signingConfig = signingConfigs.getByName("release")
+                  }
+              }
+          }
+          EOF
+
+      - name: Build Gradle Release (APK & AAB, sudah signed)
         script: |
           cd $CM_BUILD_DIR
           ./gradlew clean
