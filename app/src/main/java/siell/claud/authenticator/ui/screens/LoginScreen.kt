@@ -193,7 +193,12 @@ fun LoginScreen(onLoginSuccess: (String, String, String, String?, String) -> Uni
                                     // Scope Drive belum pernah disetujui user -> tampilkan layar consent Google.
                                     // Setelah user approve, consentLauncher akan retry fetchTokenAndLogin di atas.
                                     isLoggingIn = false
-                                    consentLauncher.launch(e.intent)
+                                    val recoveryIntent = e.intent
+                                    if (recoveryIntent != null) {
+                                        consentLauncher.launch(recoveryIntent)
+                                    } else {
+                                        errorMessage = "Login failed: ${e.message}"
+                                    }
                                     return@launch
                                 }
                             } else {
