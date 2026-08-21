@@ -1,0 +1,37 @@
+workflows:
+  android-release:
+    name: Cloud Authenticator - Android Release
+    max_build_duration: 60
+    instance_type: mac_mini_m2
+    environment:
+      groups:
+        - google_services   # buat grup ini di Codemagic > Environment variables, isi var GOOGLE_SERVICES_JSON (base64)
+      android_signing:
+        - cloud_auth        # nama reference keystore yang sudah Anda upload di Settings > Android keystores
+      vars:
+        PACKAGE_NAME: "siell.claud.authenticator"
+      java: 17
+
+    scripts:
+      - name: Tulis ulang google-services.json dari environment variable
+        script: |
+          echo $GOOGLE_SERVICES_JSON | base64 --decode > $CM_BUILD_DIR/app/google-services.json
+
+      - name: Build Gradle Release (APK & AAB)
+        script: |
+          cd $CM_BUILD_DIR
+          ./gradlew clean
+          ./gradlew assembleRelease bundleRelease
+
+    artifacts:
+      - app/build/outputs/apk/release/*.apk
+      - app/build/outputs/bundle/release/*.aab
+      - app/build/outputs/**/mapping.txt
+
+    publishing:
+      email:
+        recipients:
+          - kempesedanegmail.com
+        notify:
+          success: true
+          failure: true
